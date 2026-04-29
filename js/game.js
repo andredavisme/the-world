@@ -1,19 +1,12 @@
-import { supabase } from './supabase.js'
+import { db } from './supabase.js'
 
-// player.state view columns:
-// player_id, display_name, col, row, environment,
-// life_rating, treasure_rating, risk_rating, knowledge_rating, exposure_rating, resources
 export async function getPlayerState() {
-  const { data, error } = await supabase
-    .schema('player').from('state')
-    .select('*').single()
+  const { data, error } = await db.player.from('state').select('*').single()
   return { data, error }
 }
 
-// resources table: player_id, resource_type, current_value, max_value
 export async function getResources(playerId) {
-  const { data, error } = await supabase
-    .schema('player').from('resources')
+  const { data, error } = await db.player.from('resources')
     .select('resource_type, current_value, max_value')
     .eq('player_id', playerId)
   return { data, error }
@@ -34,7 +27,7 @@ export async function getAdjacentTiles(col, row) {
   const cols = [...new Set(dirs.map(d => d.col))]
   const rows = [...new Set(dirs.map(d => d.row))]
 
-  const { data } = await supabase.schema('game').from('world_tiles')
+  const { data } = await db.game.from('world_tiles')
     .select('id, col, row, environment')
     .in('col', cols).in('row', rows)
 
@@ -45,10 +38,9 @@ export async function getAdjacentTiles(col, row) {
 }
 
 export async function movePlayer(playerId, targetTileId) {
-  const { data, error } = await supabase
-    .schema('player').rpc('move_player', {
-      p_player_id: playerId,
-      p_target_tile: targetTileId
-    })
+  const { data, error } = await db.player.rpc('move_player', {
+    p_player_id: playerId,
+    p_target_tile: targetTileId
+  })
   return { data, error }
 }

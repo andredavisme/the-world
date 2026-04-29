@@ -17,7 +17,6 @@ export async function register(email, password, displayName) {
   if (!data.user) return { error: { message: 'Signup failed — no user returned.' } }
   await new Promise(r => setTimeout(r, 800))
   const { data: onboard, error: oErr } = await supabase
-    .schema('player')
     .rpc('onboard_player', { p_auth_uid: data.user.id, p_display_name: displayName })
   if (oErr) console.error('onboard_player error:', oErr)
   return { data: onboard, error: oErr }
