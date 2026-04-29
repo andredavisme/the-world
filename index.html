@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The World — Enter</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="container">
+  <div style="text-align:center; padding: 3rem 0 1.5rem;">
+    <h1>⬡ The World</h1>
+    <p style="color:var(--muted); font-size:.9rem; margin-top:.5rem;">
+      A shared world. No map. No guide. Only what you find.
+    </p>
+  </div>
+
+  <div class="card" id="login-form">
+    <h2>Sign In</h2>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="you@example.com">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••">
+    </div>
+    <button class="btn btn-primary" id="login-btn">Enter the World</button>
+    <div id="login-error" class="error hidden"></div>
+    <p style="margin-top:1rem; font-size:.83rem; color:var(--muted);">
+      No account? <a href="#" id="show-register">Register here</a>
+    </p>
+  </div>
+
+  <div class="card hidden" id="register-form">
+    <h2>Create Account</h2>
+    <div class="form-group">
+      <label>Display Name</label>
+      <input type="text" id="reg-name" placeholder="How you'll appear to the world">
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="reg-email" placeholder="you@example.com">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="reg-password" placeholder="min 6 characters">
+    </div>
+    <button class="btn btn-primary" id="register-btn">Begin Your Journey</button>
+    <div id="reg-error" class="error hidden"></div>
+    <div id="reg-success" class="success-msg hidden"></div>
+    <p style="margin-top:1rem; font-size:.83rem; color:var(--muted);">
+      Already registered? <a href="#" id="show-login">Sign in</a>
+    </p>
+  </div>
+
+  <div style="text-align:center; margin-top:2rem; font-size:.78rem; color:var(--muted); line-height:1.8;">
+    You will spawn somewhere in the world.<br>
+    You will not know where.<br>
+    Move. Explore. Listen to the Chronicle.<br>
+    Draw your own map.
+  </div>
+</div>
+
+<script type="module">
+  import { supabase } from './js/supabase.js'
+  import { login, register } from './js/auth.js'
+
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session) window.location.href = 'portal.html'
+
+  const showErr = (el, msg) => { el.textContent = msg; el.classList.remove('hidden') }
+  const hideEl  = (el) => el.classList.add('hidden')
+
+  document.getElementById('show-register').addEventListener('click', e => {
+    e.preventDefault()
+    document.getElementById('login-form').classList.add('hidden')
+    document.getElementById('register-form').classList.remove('hidden')
+  })
+  document.getElementById('show-login').addEventListener('click', e => {
+    e.preventDefault()
+    document.getElementById('register-form').classList.add('hidden')
+    document.getElementById('login-form').classList.remove('hidden')
+  })
+
+  document.getElementById('login-btn').addEventListener('click', async () => {
+    const email    = document.getElementById('login-email').value.trim()
+    const password = document.getElementById('login-password').value
+    const errEl    = document.getElementById('login-error')
+    hideEl(errEl)
+    const { error } = await login(email, password)
+    if (error) { showErr(errEl, error.message); return }
+    window.location.href = 'portal.html'
+  })
+
+  document.getElementById('register-btn').addEventListener('click', async () => {
+    const name     = document.getElementById('reg-name').value.trim()
+    const email    = document.getElementById('reg-email').value.trim()
+    const password = document.getElementById('reg-password').value
+    const errEl    = document.getElementById('reg-error')
+    const sucEl    = document.getElementById('reg-success')
+    hideEl(errEl); hideEl(sucEl)
+    if (!name) { showErr(errEl, 'Display name is required'); return }
+    const { error } = await register(email, password, name)
+    if (error) { showErr(errEl, error.message); return }
+    sucEl.textContent = 'Account created! Check your email to confirm, then sign in.'
+    sucEl.classList.remove('hidden')
+  })
+</script>
+</body>
+</html>
