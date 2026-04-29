@@ -34,14 +34,12 @@
     .move-btn:hover:not(:disabled){background:var(--accent);color:#0d0d1a}
     .move-btn:disabled{opacity:.35;cursor:default}
     #move-feedback{font-size:.82rem;color:var(--muted);text-align:center;min-height:1.4rem;margin-top:.4rem}
-    /* encounter banner */
     .encounter-banner{border-radius:6px;padding:.7rem 1rem;margin-top:.6rem;font-size:.88rem;text-align:center;font-weight:600;display:none;line-height:1.5}
     .encounter-Common{background:#2d2d3d;color:#b2bec3}
     .encounter-Uncommon{background:#003d3d;color:#00cec9}
     .encounter-Rare{background:#2a1a4e;color:#a29bfe}
     .encounter-Legendary{background:#3d2e00;color:#fdcb6e}
     .encounter-Mythic{background:#3d1500;color:#e17055}
-    /* action panel */
     #action-panel{margin-top:1rem;display:none}
     .action-panel-header{font-size:.78rem;color:var(--muted);margin-bottom:.5rem;letter-spacing:.06em;text-transform:uppercase}
     .action-btns{display:flex;flex-wrap:wrap;gap:.4rem}
@@ -49,12 +47,18 @@
     .action-btn:hover:not(:disabled){background:#252540;border-color:var(--accent)}
     .action-btn:disabled{opacity:.35;cursor:default}
     .action-btn .cost{color:var(--muted);font-size:.72rem;margin-left:.3rem}
-    /* action result */
     #action-result{margin-top:.6rem;padding:.6rem .8rem;border-radius:6px;background:#1a1a2e;font-size:.83rem;line-height:1.6;display:none}
     .result-rarity{font-weight:700;margin-bottom:.2rem}
-    /* outpost badge */
     .outpost-badge{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .65rem;border-radius:4px;background:#1a1a2e;border:1px solid #6c5ce7;color:#a29bfe;font-size:.78rem;margin-top:.4rem}
     .muted{color:var(--muted);font-size:.85rem} .error-msg{color:#e17055;font-size:.83rem;margin:.4rem 0}
+    /* invite codes */
+    .invite-row{display:flex;justify-content:space-between;align-items:center;padding:.35rem 0;border-bottom:1px solid #1a1a2e;font-size:.85rem}
+    .invite-code{font-family:monospace;letter-spacing:.12em;font-weight:700;color:var(--accent)}
+    .invite-expiry{color:var(--muted);font-size:.75rem}
+    .invite-used{opacity:.4;text-decoration:line-through}
+    .pool-item{display:flex;justify-content:space-between;align-items:center;padding:.35rem 0;border-bottom:1px solid #1a1a2e;font-size:.85rem;gap:.5rem}
+    .btn-xs{padding:.2rem .65rem;font-size:.75rem;border-radius:4px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer}
+    .btn-xs:hover{background:var(--accent);color:#0d0d1a}
   </style>
 </head>
 <body>
@@ -93,6 +97,16 @@
         <h3 style="margin-bottom:.6rem">Inventory</h3>
         <div id="inventory-list"><span class="muted">Loading…</span></div>
       </div>
+      <div class="card full-width">
+        <h3 style="margin-bottom:.5rem">Your Invites</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:.6rem">Share these codes at <strong>andredavisme.github.io/the-world</strong>. Unused codes expire after 1 week and enter the public pool.</p>
+        <div id="invite-list"><span class="muted">Loading…</span></div>
+      </div>
+      <div class="card full-width">
+        <h3 style="margin-bottom:.5rem">Public Pool</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:.6rem">Unclaimed invites from other players. Claim one to get 1 week to use it.</p>
+        <div id="pool-list"><span class="muted">Loading…</span></div>
+      </div>
     </div>
   </div>
 
@@ -114,8 +128,6 @@
       </div>
       <div id="move-feedback"></div>
       <div id="encounter-banner" class="encounter-banner"></div>
-
-      <!-- Action panel: shown after arriving on a tile -->
       <div id="action-panel">
         <div class="action-panel-header">What do you do?</div>
         <div id="outpost-info"></div>
@@ -123,7 +135,6 @@
         <div id="action-result"></div>
       </div>
     </div>
-
     <div class="card" style="margin-top:1rem">
       <h3>Active Clues</h3>
       <div id="clue-list"><span class="muted">Loading clues…</span></div>
@@ -171,6 +182,7 @@
 
   const session = await requireAuth()
   if (!session) throw new Error('not authed')
+  const ME = session.user.id
 
   document.getElementById('logout-btn').addEventListener('click', logout)
 
@@ -228,6 +240,75 @@
     el.innerHTML = data.map(i => `<div class="stat-row"><span>${i.item_name}</span><span class="stat-val">×${i.quantity}</span></div>`).join('')
   }
 
+  // ── Invites ──────────────────────────────────────────────────
+  async function loadInvites() {
+    // Sweep expired codes into pool first
+    await db.player.rpc('sweep_expired_invites')
+
+    // My codes
+    const { data: mine } = await db.player.from('invite_codes')
+      .select('code, status, use_count, max_uses, expires_at')
+      .eq('owner_player_id', ME)
+      .order('created_at', { ascending: true })
+
+    const invEl = document.getElementById('invite-list')
+    if (!mine?.length) {
+      invEl.innerHTML = '<span class="muted">No invites yet — you receive 3 after someone uses your code.</span>'
+    } else {
+      invEl.innerHTML = mine.map(c => {
+        const isUsed   = c.status === 'used'
+        const isPooled = c.status === 'pooled'
+        const exp      = c.expires_at ? new Date(c.expires_at) : null
+        const expStr   = exp ? `expires ${exp.toLocaleDateString()}` : 'no expiry'
+        const rowClass = (isUsed || isPooled) ? 'invite-row invite-used' : 'invite-row'
+        const label    = isUsed ? 'used' : isPooled ? 'pooled' : expStr
+        return `<div class="${rowClass}">
+          <span class="invite-code">${c.code}</span>
+          <span class="invite-expiry">${label}</span>
+        </div>`
+      }).join('')
+    }
+
+    // Public pool (not mine, claimed_by is null, pooled status)
+    const { data: pool } = await db.player.from('invite_codes')
+      .select('code, pooled_at')
+      .eq('status', 'pooled')
+      .neq('owner_player_id', ME)
+      .order('pooled_at', { ascending: true })
+      .limit(10)
+
+    const poolEl = document.getElementById('pool-list')
+    if (!pool?.length) {
+      poolEl.innerHTML = '<span class="muted">The pool is empty right now.</span>'
+    } else {
+      poolEl.innerHTML = pool.map(c =>
+        `<div class="pool-item">
+          <span class="invite-code">${c.code}</span>
+          <span class="invite-expiry">pooled ${new Date(c.pooled_at).toLocaleDateString()}</span>
+          <button class="btn-xs" data-claim="${c.code}">Claim</button>
+        </div>`
+      ).join('')
+
+      poolEl.querySelectorAll('[data-claim]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true; btn.textContent = '…'
+          const { data, error } = await db.player.rpc('claim_pooled_invite', {
+            p_code:      btn.dataset.claim,
+            p_player_id: ME
+          })
+          if (error || !data?.success) {
+            btn.textContent = data?.reason || 'Unavailable'
+            return
+          }
+          btn.closest('.pool-item').innerHTML =
+            `<span class="invite-code">${data.code}</span>
+             <span style="color:#00b894;font-size:.78rem">✓ Claimed — expires ${new Date(data.expires_at).toLocaleDateString()}</span>`
+          loadInvites()
+        })
+      })
+    }
+  }
+
   async function loadAndRenderClues() {
     const el = document.getElementById('clue-list')
     if (!cachedState?.player_id) { el.innerHTML = '<span class="muted">No player data.</span>'; return }
@@ -256,7 +337,6 @@
     ).join('')
   }
 
-  // ── Encounter banner ──────────────────────────────────────────
   const encounterFlavour = {
     Common:    { icon: '👁', lines: ['Something stirs in the undergrowth.', 'A presence watches from the shadows.', 'The world noticed you arrive.'] },
     Uncommon:  { icon: '⚡', lines: ['The air crackles with unusual energy.', 'An uncommon force stirs nearby.', 'Something here is worth paying attention to.'] },
@@ -276,8 +356,6 @@
     setTimeout(() => { banner.style.display = 'none' }, 8000)
   }
 
-  // ── Action panel ──────────────────────────────────────────────
-  // Which actions to offer per environment
   const envActions = {
     Forest:     ['Explore','Hunt','Study','Endure','Trigger_Encounter','Establish_Outpost'],
     Jungle:     ['Explore','Hunt','Excavate','Study','Endure','Trigger_Encounter','Establish_Outpost'],
@@ -290,14 +368,14 @@
   }
 
   const actionMeta = {
-    Explore:           { label: 'Explore',        icon: '🔍', cost: '2 Stamina',   resource: 'Stamina',   amount: 2 },
-    Hunt:              { label: 'Hunt',           icon: '🏹', cost: '3 Stamina',   resource: 'Stamina',   amount: 3 },
-    Excavate:          { label: 'Excavate',       icon: '⛏️',  cost: '3 Stamina',   resource: 'Stamina',   amount: 3 },
-    Study:             { label: 'Study',          icon: '📜', cost: '2 Focus',     resource: 'Focus',     amount: 2 },
-    Endure:            { label: 'Endure',         icon: '💚', cost: 'Free — +2 Vitality', resource: null, amount: 0 },
-    Trade:             { label: 'Trade',          icon: '🤝', cost: '3 Influence', resource: 'Influence', amount: 3 },
-    Trigger_Encounter: { label: 'Seek Encounter', icon: '🎲', cost: '1 Luck',     resource: 'Luck',      amount: 1 },
-    Establish_Outpost: { label: 'Establish Outpost', icon: '🏠', cost: '5 Influence', resource: 'Influence', amount: 5 },
+    Explore:           { label: 'Explore',           icon: '🔍', cost: '2 Stamina',        resource: 'Stamina',   amount: 2 },
+    Hunt:              { label: 'Hunt',              icon: '🏹', cost: '3 Stamina',        resource: 'Stamina',   amount: 3 },
+    Excavate:          { label: 'Excavate',          icon: '⛏️',  cost: '3 Stamina',        resource: 'Stamina',   amount: 3 },
+    Study:             { label: 'Study',             icon: '📜', cost: '2 Focus',          resource: 'Focus',     amount: 2 },
+    Endure:            { label: 'Endure',            icon: '💚', cost: 'Free — +2 Vitality',resource: null,       amount: 0 },
+    Trade:             { label: 'Trade',             icon: '🤝', cost: '3 Influence',      resource: 'Influence', amount: 3 },
+    Trigger_Encounter: { label: 'Seek Encounter',    icon: '🎲', cost: '1 Luck',           resource: 'Luck',      amount: 1 },
+    Establish_Outpost: { label: 'Establish Outpost', icon: '🏠', cost: '5 Influence',      resource: 'Influence', amount: 5 },
   }
 
   function getResourceVal(resourceName) {
@@ -307,26 +385,18 @@
   }
 
   async function renderActionPanel(tileId, environment, isFirstVisit, hasOutpost, outpostName) {
-    const panel = document.getElementById('action-panel')
-    const btns  = document.getElementById('action-btns')
-    const info  = document.getElementById('outpost-info')
+    const panel  = document.getElementById('action-panel')
+    const btns   = document.getElementById('action-btns')
+    const info   = document.getElementById('outpost-info')
     const result = document.getElementById('action-result')
     result.style.display = 'none'
-    panel.style.display = 'block'
-
-    // Outpost badge
-    if (hasOutpost) {
-      info.innerHTML = `<div class="outpost-badge">🏠 <span>${outpostName || 'Outpost'}</span></div>`
-    } else {
-      info.innerHTML = ''
-    }
-
-    const allowed = envActions[environment] || envActions.default
-    // If tile already has outpost, remove Establish_Outpost
-    const filtered = hasOutpost ? allowed.filter(a => a !== 'Establish_Outpost') : allowed
-    // Trade only if outpost present
+    panel.style.display  = 'block'
+    info.innerHTML = hasOutpost
+      ? `<div class="outpost-badge">🏠 <span>${outpostName || 'Outpost'}</span></div>`
+      : ''
+    const allowed     = envActions[environment] || envActions.default
+    const filtered    = hasOutpost ? allowed.filter(a => a !== 'Establish_Outpost') : allowed
     const finalActions = filtered.filter(a => a !== 'Trade' || hasOutpost)
-
     btns.innerHTML = finalActions.map(action => {
       const m = actionMeta[action]
       const res = m.resource ? getResourceVal(m.resource) : 999
@@ -335,14 +405,10 @@
         ${m.icon} ${m.label} <span class="cost">${m.cost}</span>
       </button>`
     }).join('')
-
-    // Context label
     const ctx = document.getElementById('tile-context')
-    if (isFirstVisit) {
-      ctx.textContent = `First time here. The ${environment || 'area'} stretches before you.`
-    } else {
-      ctx.textContent = `You know this ${environment || 'tile'}. Something may still remain.`
-    }
+    ctx.textContent = isFirstVisit
+      ? `First time here. The ${environment || 'area'} stretches before you.`
+      : `You know this ${environment || 'tile'}. Something may still remain.`
   }
 
   const rarityColors = { Common:'#b2bec3', Uncommon:'#00cec9', Rare:'#a29bfe', Legendary:'#fdcb6e', Mythic:'#e17055' }
@@ -350,27 +416,23 @@
   document.getElementById('action-btns').addEventListener('click', async e => {
     const btn = e.target.closest('.action-btn')
     if (!btn || btn.disabled) return
-    const action  = btn.dataset.action
-    const tileId  = btn.dataset.tile
+    const action   = btn.dataset.action
+    const tileId   = btn.dataset.tile
     const resultEl = document.getElementById('action-result')
-
     document.querySelectorAll('.action-btn').forEach(b => b.disabled = true)
     resultEl.style.display = 'block'
     resultEl.innerHTML = '<span style="color:var(--muted)">Acting…</span>'
-
     const { data, error } = await db.game.rpc('resolve_action', {
       p_player_id:   cachedState.player_id,
       p_action_type: action,
       p_tile_id:     tileId
     })
-
     if (error || !data?.success) {
       const reason = data?.reason || error?.message || 'Something went wrong.'
       resultEl.innerHTML = `<span style="color:#e17055">⚠️ ${reason}</span>`
       document.querySelectorAll('.action-btn').forEach(b => b.disabled = false)
       return
     }
-
     let html = `<div style="color:var(--text)">${data.outcome || 'Done.'}</div>`
     if (data.rarity) {
       const color = rarityColors[data.rarity] || 'var(--accent)'
@@ -380,34 +442,28 @@
       html += `<div style="color:var(--muted);font-size:.78rem;margin-top:.2rem">−${data.cost} ${data.resource}</div>`
     }
     resultEl.innerHTML = html
-
     await loadState()
     await loadAndRenderClues()
     await loadAndRenderCarrots()
-    // Re-render buttons with updated resource values
     const { data: tileData } = await db.game.from('world_tiles').select('environment').eq('id', tileId).single()
     const { data: outpost }  = await db.game.from('outposts').select('name').eq('tile_id', tileId).maybeSingle()
     const { data: logRow }   = await db.player.from('exploration_log').select('tile_id').eq('player_id', cachedState.player_id).eq('tile_id', tileId).maybeSingle()
     renderActionPanel(tileId, tileData?.environment, !logRow, !!outpost, outpost?.name)
     document.querySelectorAll('.action-btn').forEach(b => {
-      const action = b.dataset.action
-      const m = actionMeta[action]
+      const m = actionMeta[b.dataset.action]
       b.disabled = !!(m?.resource && getResourceVal(m.resource) < m.amount)
     })
   })
 
-  // ── Movement ─────────────────────────────────────────────────
   document.querySelectorAll('.move-btn[data-dir]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const fb = document.getElementById('move-feedback')
       if (!cachedState) { fb.textContent = 'State not loaded yet.'; return }
-
       document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = true)
       fb.textContent = 'Moving…'
       document.getElementById('encounter-banner').style.display = 'none'
-      document.getElementById('action-panel').style.display = 'none'
-      document.getElementById('action-result').style.display = 'none'
-
+      document.getElementById('action-panel').style.display     = 'none'
+      document.getElementById('action-result').style.display    = 'none'
       const tiles  = await getAdjacentTiles(cachedState.col ?? 0, cachedState.row ?? 0)
       const target = tiles.find(t => t.dir === btn.dataset.dir)
       if (!target?.tile_id) {
@@ -415,25 +471,19 @@
         document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
         return
       }
-
-      // Check prior visit BEFORE moving (exploration_log gets written by move_player)
       const { data: logRow } = await db.player.from('exploration_log')
         .select('tile_id').eq('player_id', cachedState.player_id).eq('tile_id', target.tile_id).maybeSingle()
       const isFirstVisit = !logRow
-
       const { data, error } = await movePlayer(cachedState.player_id, target.tile_id)
       if (error) {
         fb.textContent = error.message || 'Error moving.'
         document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
         return
       }
-
       const env = data?.environment || target.environment || ''
       fb.textContent = isFirstVisit
         ? `You step into the ${env || 'unknown'} for the first time.`
         : `You return to the ${env || 'tile'}.`
-
-      // Encounter roll on first visit
       if (isFirstVisit) {
         const riskRating = data?.ecosystem?.risk ?? cachedState.risk_rating ?? 3
         const luckVal    = getResourceVal('Luck')
@@ -443,23 +493,18 @@
         })
         showEncounterBanner(rarity)
       }
-
       await loadState()
       await loadAndRenderClues()
-
-      // Load outpost for this tile
       const { data: outpost } = await db.game.from('outposts')
         .select('name').eq('tile_id', target.tile_id).maybeSingle()
-
       renderActionPanel(target.tile_id, data?.environment || env, isFirstVisit, !!outpost, outpost?.name)
       document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
     })
   })
 
-  // ── Chronicle ────────────────────────────────────────────────
   async function renderChronicle() {
     const data = await loadChronicle()
-    const el = document.getElementById('chronicle-list')
+    const el   = document.getElementById('chronicle-list')
     if (!data?.length) { el.innerHTML = '<span class="muted">The world is silent… for now.</span>'; return }
     el.innerHTML = data.map(e =>
       `<div class="entry">
@@ -470,7 +515,6 @@
     ).join('')
   }
 
-  // ── Boards ───────────────────────────────────────────────────
   const boards = await getBoards()
   const boardSel = document.getElementById('board-select')
   boardSel.innerHTML = boards?.map(b => `<option value="${b.id}">${b.name}</option>`).join('') || '<option value="">No boards yet</option>'
@@ -501,7 +545,7 @@
   })
 
   await loadState()
-  await Promise.all([loadInventory(), loadAndRenderClues(), loadAndRenderCarrots(), renderChronicle()])
+  await Promise.all([loadInventory(), loadAndRenderClues(), loadAndRenderCarrots(), renderChronicle(), loadInvites()])
 </script>
 </body>
 </html>
