@@ -9,12 +9,13 @@
 <body>
 <div class="container">
   <div style="text-align:center; padding: 3rem 0 1.5rem;">
-    <h1>⬡ The World</h1>
+    <h1>⭡ The World</h1>
     <p style="color:var(--muted); font-size:.9rem; margin-top:.5rem;">
       A shared world. No map. No guide. Only what you find.
     </p>
   </div>
 
+  <!-- SIGN IN -->
   <div class="card" id="login-form">
     <h2>Sign In</h2>
     <div class="form-group">
@@ -28,12 +29,17 @@
     <button class="btn btn-primary" id="login-btn">Enter the World</button>
     <div id="login-error" class="error hidden"></div>
     <p style="margin-top:1rem; font-size:.83rem; color:var(--muted);">
-      No account? <a href="#" id="show-register">Register here</a>
+      Have an invite? <a href="#" id="show-register">Register here</a>
     </p>
   </div>
 
+  <!-- REGISTER -->
   <div class="card hidden" id="register-form">
     <h2>Create Account</h2>
+    <div class="form-group">
+      <label>Invite Code</label>
+      <input type="text" id="reg-code" placeholder="e.g. 4F8931" autocomplete="off" style="text-transform:uppercase;letter-spacing:.12em">
+    </div>
     <div class="form-group">
       <label>Display Name</label>
       <input type="text" id="reg-name" placeholder="How you'll appear to the world">
@@ -63,25 +69,32 @@
 </div>
 
 <script type="module">
-  import { supabase } from './js/supabase.js'
+  import { supabase, db } from './js/supabase.js'
   import { login, register } from './js/auth.js'
 
-  // Already logged in? Go straight to portal
   const { data: { session } } = await supabase.auth.getSession()
   if (session) window.location.href = 'portal.html'
 
   const showErr = (el, msg) => { el.textContent = msg; el.classList.remove('hidden') }
-  const hideEl  = (el) => el.classList.add('hidden')
+  const hideEl  = el => el.classList.add('hidden')
 
   document.getElementById('show-register').addEventListener('click', e => {
     e.preventDefault()
     document.getElementById('login-form').classList.add('hidden')
     document.getElementById('register-form').classList.remove('hidden')
+    document.getElementById('reg-code').focus()
   })
   document.getElementById('show-login').addEventListener('click', e => {
     e.preventDefault()
     document.getElementById('register-form').classList.add('hidden')
     document.getElementById('login-form').classList.remove('hidden')
+  })
+
+  // Auto-uppercase invite code as user types
+  document.getElementById('reg-code').addEventListener('input', e => {
+    const pos = e.target.selectionStart
+    e.target.value = e.target.value.toUpperCase()
+    e.target.setSelectionRange(pos, pos)
   })
 
   document.getElementById('login-btn').addEventListener('click', async () => {
@@ -95,34 +108,59 @@
   })
 
   document.getElementById('register-btn').addEventListener('click', async () => {
+    const code     = document.getElementById('reg-code').value.trim().toUpperCase()
     const name     = document.getElementById('reg-name').value.trim()
     const email    = document.getElementById('reg-email').value.trim()
     const password = document.getElementById('reg-password').value
     const errEl    = document.getElementById('reg-error')
     const sucEl    = document.getElementById('reg-success')
     hideEl(errEl); hideEl(sucEl)
-    if (!name)     { showErr(errEl, 'Display name is required'); return }
-    if (!email)    { showErr(errEl, 'Email is required'); return }
+
+    if (!code)               { showErr(errEl, 'An invite code is required'); return }
+    if (!name)               { showErr(errEl, 'Display name is required'); return }
+    if (!email)              { showErr(errEl, 'Email is required'); return }
     if (password.length < 6) { showErr(errEl, 'Password must be at least 6 characters'); return }
+
+    // Validate code before creating account
+    const { data: codeRow, error: codeErr } = await db.player
+      .from('invite_codes')
+      .select('id, use_count, max_uses, expires_at')
+      .eq('code', code)
+      .maybeSingle()
+
+    if (codeErr || !codeRow) {
+      showErr(errEl, 'Invalid invite code'); return
+    }
+    if (codeRow.use_count >= codeRow.max_uses) {
+      showErr(errEl, 'That invite code has already been used'); return
+    }
+    if (codeRow.expires_at && new Date(codeRow.expires_at) < new Date()) {
+      showErr(errEl, 'That invite code has expired'); return
+    }
 
     const btn = document.getElementById('register-btn')
     btn.disabled = true
     btn.textContent = 'Entering the world…'
 
-    const { error } = await register(email, password, name)
-    if (error) {
-      showErr(errEl, error.message)
+    const { error: regErr } = await register(email, password, name)
+    if (regErr) {
+      showErr(errEl, regErr.message)
       btn.disabled = false
       btn.textContent = 'Begin Your Journey'
       return
     }
 
-    // If email confirmation is OFF, session exists immediately — go to portal
+    // Get session (if email confirm is off, it exists immediately)
     const { data: { session: newSession } } = await supabase.auth.getSession()
+
     if (newSession) {
+      // Consume the invite code now that we have an authenticated user
+      await db.player.rpc('use_invite_code', {
+        p_code:      code,
+        p_player_id: newSession.user.id
+      })
       window.location.href = 'portal.html'
     } else {
-      // Email confirmation is ON — show message
       sucEl.textContent = 'Account created! Check your email to confirm, then sign in.'
       sucEl.classList.remove('hidden')
       btn.disabled = false
