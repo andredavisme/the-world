@@ -31,15 +31,29 @@
     .rarity-common{color:#b2bec3} .rarity-uncommon{color:#00cec9} .rarity-rare{color:#6c5ce7} .rarity-legendary{color:#fdcb6e} .rarity-mythic{color:#e17055}
     .move-grid{display:grid;grid-template-columns:repeat(3,48px);gap:.4rem;margin:.75rem auto;width:fit-content}
     .move-btn{width:48px;height:48px;border-radius:6px;border:none;background:#1a1a2e;color:var(--text);font-size:1.2rem;cursor:pointer;transition:background .15s}
-    .move-btn:hover{background:var(--accent);color:#0d0d1a}
+    .move-btn:hover:not(:disabled){background:var(--accent);color:#0d0d1a}
+    .move-btn:disabled{opacity:.35;cursor:default}
     #move-feedback{font-size:.82rem;color:var(--muted);text-align:center;min-height:1.4rem;margin-top:.4rem}
-    .encounter-banner{border-radius:6px;padding:.6rem 1rem;margin-top:.6rem;font-size:.85rem;text-align:center;font-weight:600;display:none}
-    .encounter-none{background:#1a1a2e;color:var(--muted)}
+    /* encounter banner */
+    .encounter-banner{border-radius:6px;padding:.7rem 1rem;margin-top:.6rem;font-size:.88rem;text-align:center;font-weight:600;display:none;line-height:1.5}
     .encounter-Common{background:#2d2d3d;color:#b2bec3}
     .encounter-Uncommon{background:#003d3d;color:#00cec9}
     .encounter-Rare{background:#2a1a4e;color:#a29bfe}
     .encounter-Legendary{background:#3d2e00;color:#fdcb6e}
     .encounter-Mythic{background:#3d1500;color:#e17055}
+    /* action panel */
+    #action-panel{margin-top:1rem;display:none}
+    .action-panel-header{font-size:.78rem;color:var(--muted);margin-bottom:.5rem;letter-spacing:.06em;text-transform:uppercase}
+    .action-btns{display:flex;flex-wrap:wrap;gap:.4rem}
+    .action-btn{padding:.4rem .85rem;border-radius:5px;border:1px solid #333;background:#1a1a2e;color:var(--text);font-size:.8rem;cursor:pointer;transition:background .15s,border-color .15s}
+    .action-btn:hover:not(:disabled){background:#252540;border-color:var(--accent)}
+    .action-btn:disabled{opacity:.35;cursor:default}
+    .action-btn .cost{color:var(--muted);font-size:.72rem;margin-left:.3rem}
+    /* action result */
+    #action-result{margin-top:.6rem;padding:.6rem .8rem;border-radius:6px;background:#1a1a2e;font-size:.83rem;line-height:1.6;display:none}
+    .result-rarity{font-weight:700;margin-bottom:.2rem}
+    /* outpost badge */
+    .outpost-badge{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .65rem;border-radius:4px;background:#1a1a2e;border:1px solid #6c5ce7;color:#a29bfe;font-size:.78rem;margin-top:.4rem}
     .muted{color:var(--muted);font-size:.85rem} .error-msg{color:#e17055;font-size:.83rem;margin:.4rem 0}
   </style>
 </head>
@@ -86,7 +100,7 @@
   <div class="tab-panel" id="tab-explore">
     <div class="card">
       <h3>Move</h3>
-      <p style="font-size:.83rem;color:var(--muted);margin:.25rem 0 .5rem">Each move costs stamina. Unknown tiles trigger an encounter roll.</p>
+      <p id="tile-context" style="font-size:.83rem;color:var(--muted);margin:.25rem 0 .5rem">Each move costs stamina. Unknown tiles trigger an encounter roll.</p>
       <div class="move-grid">
         <button class="move-btn" data-dir="NW">⬉</button>
         <button class="move-btn" data-dir="N">⬆</button>
@@ -100,7 +114,16 @@
       </div>
       <div id="move-feedback"></div>
       <div id="encounter-banner" class="encounter-banner"></div>
+
+      <!-- Action panel: shown after arriving on a tile -->
+      <div id="action-panel">
+        <div class="action-panel-header">What do you do?</div>
+        <div id="outpost-info"></div>
+        <div class="action-btns" id="action-btns"></div>
+        <div id="action-result"></div>
+      </div>
     </div>
+
     <div class="card" style="margin-top:1rem">
       <h3>Active Clues</h3>
       <div id="clue-list"><span class="muted">Loading clues…</span></div>
@@ -161,6 +184,7 @@
   })
 
   let cachedState = null
+
   async function loadState() {
     const { data, error } = await getPlayerState()
     if (error || !data) { console.error('state:', error); return }
@@ -178,9 +202,9 @@
   function renderResources(res) {
     const el = document.getElementById('resource-bars')
     if (!res) { el.innerHTML = '<span class="muted">No resource data.</span>'; return }
-    const entries = Array.isArray(res) ? res : Object.entries(res).map(([k,v]) => ({ resource_type: k, current_value: v, max_value: 100 }))
+    const entries = Array.isArray(res) ? res : Object.entries(res).map(([k,v]) => ({ resource: k, current: v, max: 100 }))
     if (!entries.length) { el.innerHTML = '<span class="muted">No resources found.</span>'; return }
-    const colors = { health:'var(--accent)', stamina:'#00b894', hunger:'#fdcb6e', knowledge:'#a29bfe', vitality:'var(--accent)', focus:'#a29bfe', influence:'#fd79a8', luck:'#fdcb6e' }
+    const colors = { vitality:'var(--accent)', stamina:'#00b894', focus:'#a29bfe', influence:'#fd79a8', luck:'#fdcb6e' }
     el.innerHTML = entries.map(r => {
       const key = (r.resource || r.resource_type || '').toLowerCase()
       const cur = r.current ?? r.current_value ?? 0
@@ -232,40 +256,159 @@
     ).join('')
   }
 
-  const encounterMessages = {
-    Common:    { icon: '👁', text: 'Something stirs in the undergrowth. A Common encounter.' },
-    Uncommon:  { icon: '⚡', text: 'The air shifts. An Uncommon presence makes itself known.' },
-    Rare:      { icon: '💠', text: 'A Rare discovery pulses at the edge of your senses.' },
-    Legendary: { icon: '🔥', text: 'The ground trembles. A Legendary force has found you.' },
-    Mythic:    { icon: '✦', text: 'Reality fractures. A Mythic encounter — few have survived this.' },
+  // ── Encounter banner ──────────────────────────────────────────
+  const encounterFlavour = {
+    Common:    { icon: '👁', lines: ['Something stirs in the undergrowth.', 'A presence watches from the shadows.', 'The world noticed you arrive.'] },
+    Uncommon:  { icon: '⚡', lines: ['The air crackles with unusual energy.', 'An uncommon force stirs nearby.', 'Something here is worth paying attention to.'] },
+    Rare:      { icon: '💠', lines: ['A rare pulse ripples through the tile.', 'The ecosystem reacts strangely to your presence.', 'Something precious stirs.'] },
+    Legendary: { icon: '🔥', lines: ['The ground trembles beneath you.', 'A legendary force has awakened.', 'Stories will be told of this moment.'] },
+    Mythic:    { icon: '✦', lines: ['Reality fractures at the edges.', 'A mythic presence fills the air.', 'Few have stood here and walked away unchanged.'] },
   }
 
   function showEncounterBanner(rarity) {
     const banner = document.getElementById('encounter-banner')
-    if (!rarity) {
-      banner.style.display = 'none'
-      return
-    }
-    const msg = encounterMessages[rarity] || { icon: '?', text: `Encounter: ${rarity}` }
+    if (!rarity) { banner.style.display = 'none'; return }
+    const f = encounterFlavour[rarity] || { icon: '?', lines: [`Encounter: ${rarity}`] }
+    const line = f.lines[Math.floor(Math.random() * f.lines.length)]
     banner.className = `encounter-banner encounter-${rarity}`
     banner.style.display = 'block'
-    banner.textContent = `${msg.icon} ${msg.text}`
-    // Auto-hide after 6 seconds
-    setTimeout(() => { banner.style.display = 'none' }, 6000)
+    banner.innerHTML = `<div>${f.icon} <strong>${rarity} Encounter</strong></div><div style="font-weight:400;margin-top:.2rem">${line}</div>`
+    setTimeout(() => { banner.style.display = 'none' }, 8000)
   }
 
-  // movement
+  // ── Action panel ──────────────────────────────────────────────
+  // Which actions to offer per environment
+  const envActions = {
+    Forest:     ['Explore','Hunt','Study','Endure','Trigger_Encounter','Establish_Outpost'],
+    Jungle:     ['Explore','Hunt','Excavate','Study','Endure','Trigger_Encounter','Establish_Outpost'],
+    Swamp:      ['Explore','Hunt','Study','Endure','Trigger_Encounter','Establish_Outpost'],
+    Mountain:   ['Explore','Excavate','Study','Endure','Trigger_Encounter','Establish_Outpost'],
+    Desert:     ['Explore','Excavate','Hunt','Endure','Trigger_Encounter','Establish_Outpost'],
+    Ocean:      ['Explore','Hunt','Study','Endure','Trigger_Encounter','Establish_Outpost'],
+    Freshwater: ['Explore','Hunt','Study','Endure','Trigger_Encounter','Establish_Outpost'],
+    default:    ['Explore','Endure','Trigger_Encounter'],
+  }
+
+  const actionMeta = {
+    Explore:           { label: 'Explore',        icon: '🔍', cost: '2 Stamina',   resource: 'Stamina',   amount: 2 },
+    Hunt:              { label: 'Hunt',           icon: '🏹', cost: '3 Stamina',   resource: 'Stamina',   amount: 3 },
+    Excavate:          { label: 'Excavate',       icon: '⛏️',  cost: '3 Stamina',   resource: 'Stamina',   amount: 3 },
+    Study:             { label: 'Study',          icon: '📜', cost: '2 Focus',     resource: 'Focus',     amount: 2 },
+    Endure:            { label: 'Endure',         icon: '💚', cost: 'Free — +2 Vitality', resource: null, amount: 0 },
+    Trade:             { label: 'Trade',          icon: '🤝', cost: '3 Influence', resource: 'Influence', amount: 3 },
+    Trigger_Encounter: { label: 'Seek Encounter', icon: '🎲', cost: '1 Luck',     resource: 'Luck',      amount: 1 },
+    Establish_Outpost: { label: 'Establish Outpost', icon: '🏠', cost: '5 Influence', resource: 'Influence', amount: 5 },
+  }
+
+  function getResourceVal(resourceName) {
+    if (!cachedState?.resources) return 0
+    const r = cachedState.resources.find(x => (x.resource||x.resource_type||'').toLowerCase() === resourceName.toLowerCase())
+    return r ? (r.current ?? r.current_value ?? 0) : 0
+  }
+
+  async function renderActionPanel(tileId, environment, isFirstVisit, hasOutpost, outpostName) {
+    const panel = document.getElementById('action-panel')
+    const btns  = document.getElementById('action-btns')
+    const info  = document.getElementById('outpost-info')
+    const result = document.getElementById('action-result')
+    result.style.display = 'none'
+    panel.style.display = 'block'
+
+    // Outpost badge
+    if (hasOutpost) {
+      info.innerHTML = `<div class="outpost-badge">🏠 <span>${outpostName || 'Outpost'}</span></div>`
+    } else {
+      info.innerHTML = ''
+    }
+
+    const allowed = envActions[environment] || envActions.default
+    // If tile already has outpost, remove Establish_Outpost
+    const filtered = hasOutpost ? allowed.filter(a => a !== 'Establish_Outpost') : allowed
+    // Trade only if outpost present
+    const finalActions = filtered.filter(a => a !== 'Trade' || hasOutpost)
+
+    btns.innerHTML = finalActions.map(action => {
+      const m = actionMeta[action]
+      const res = m.resource ? getResourceVal(m.resource) : 999
+      const disabled = m.resource && res < m.amount ? 'disabled' : ''
+      return `<button class="action-btn" data-action="${action}" data-tile="${tileId}" ${disabled}>
+        ${m.icon} ${m.label} <span class="cost">${m.cost}</span>
+      </button>`
+    }).join('')
+
+    // Context label
+    const ctx = document.getElementById('tile-context')
+    if (isFirstVisit) {
+      ctx.textContent = `First time here. The ${environment || 'area'} stretches before you.`
+    } else {
+      ctx.textContent = `You know this ${environment || 'tile'}. Something may still remain.`
+    }
+  }
+
+  const rarityColors = { Common:'#b2bec3', Uncommon:'#00cec9', Rare:'#a29bfe', Legendary:'#fdcb6e', Mythic:'#e17055' }
+
+  document.getElementById('action-btns').addEventListener('click', async e => {
+    const btn = e.target.closest('.action-btn')
+    if (!btn || btn.disabled) return
+    const action  = btn.dataset.action
+    const tileId  = btn.dataset.tile
+    const resultEl = document.getElementById('action-result')
+
+    document.querySelectorAll('.action-btn').forEach(b => b.disabled = true)
+    resultEl.style.display = 'block'
+    resultEl.innerHTML = '<span style="color:var(--muted)">Acting…</span>'
+
+    const { data, error } = await db.game.rpc('resolve_action', {
+      p_player_id:   cachedState.player_id,
+      p_action_type: action,
+      p_tile_id:     tileId
+    })
+
+    if (error || !data?.success) {
+      const reason = data?.reason || error?.message || 'Something went wrong.'
+      resultEl.innerHTML = `<span style="color:#e17055">⚠️ ${reason}</span>`
+      document.querySelectorAll('.action-btn').forEach(b => b.disabled = false)
+      return
+    }
+
+    let html = `<div style="color:var(--text)">${data.outcome || 'Done.'}</div>`
+    if (data.rarity) {
+      const color = rarityColors[data.rarity] || 'var(--accent)'
+      html += `<div class="result-rarity" style="color:${color};margin-top:.3rem">🥕 ${data.rarity} carrot spawned on this tile.</div>`
+    }
+    if (data.cost > 0) {
+      html += `<div style="color:var(--muted);font-size:.78rem;margin-top:.2rem">−${data.cost} ${data.resource}</div>`
+    }
+    resultEl.innerHTML = html
+
+    await loadState()
+    await loadAndRenderClues()
+    await loadAndRenderCarrots()
+    // Re-render buttons with updated resource values
+    const { data: tileData } = await db.game.from('world_tiles').select('environment').eq('id', tileId).single()
+    const { data: outpost }  = await db.game.from('outposts').select('name').eq('tile_id', tileId).maybeSingle()
+    const { data: logRow }   = await db.player.from('exploration_log').select('tile_id').eq('player_id', cachedState.player_id).eq('tile_id', tileId).maybeSingle()
+    renderActionPanel(tileId, tileData?.environment, !logRow, !!outpost, outpost?.name)
+    document.querySelectorAll('.action-btn').forEach(b => {
+      const action = b.dataset.action
+      const m = actionMeta[action]
+      b.disabled = !!(m?.resource && getResourceVal(m.resource) < m.amount)
+    })
+  })
+
+  // ── Movement ─────────────────────────────────────────────────
   document.querySelectorAll('.move-btn[data-dir]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const fb = document.getElementById('move-feedback')
       if (!cachedState) { fb.textContent = 'State not loaded yet.'; return }
 
-      // Disable buttons during move
       document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = true)
       fb.textContent = 'Moving…'
       document.getElementById('encounter-banner').style.display = 'none'
+      document.getElementById('action-panel').style.display = 'none'
+      document.getElementById('action-result').style.display = 'none'
 
-      const tiles = await getAdjacentTiles(cachedState.col ?? 0, cachedState.row ?? 0)
+      const tiles  = await getAdjacentTiles(cachedState.col ?? 0, cachedState.row ?? 0)
       const target = tiles.find(t => t.dir === btn.dataset.dir)
       if (!target?.tile_id) {
         fb.textContent = 'No tile in that direction.'
@@ -273,10 +416,10 @@
         return
       }
 
-      // Check if this tile is unknown (not yet in world_tiles with known environment)
-      const { data: tileData } = await db.game.from('world_tiles')
-        .select('environment').eq('id', target.tile_id).single()
-      const isUnknown = !tileData?.environment
+      // Check prior visit BEFORE moving (exploration_log gets written by move_player)
+      const { data: logRow } = await db.player.from('exploration_log')
+        .select('tile_id').eq('player_id', cachedState.player_id).eq('tile_id', target.tile_id).maybeSingle()
+      const isFirstVisit = !logRow
 
       const { data, error } = await movePlayer(cachedState.player_id, target.tile_id)
       if (error) {
@@ -285,30 +428,35 @@
         return
       }
 
-      fb.textContent = data?.message || 'Moved.'
+      const env = data?.environment || target.environment || ''
+      fb.textContent = isFirstVisit
+        ? `You step into the ${env || 'unknown'} for the first time.`
+        : `You return to the ${env || 'tile'}.`
 
-      // Roll encounter for unknown tiles
-      if (isUnknown) {
-        const riskRating = cachedState.risk_rating ?? 3
-        const luckRes = Array.isArray(cachedState.resources)
-          ? cachedState.resources.find(r => (r.resource || r.resource_type || '').toLowerCase() === 'luck')
-          : null
-        const luckBonus = luckRes ? (luckRes.current ?? luckRes.current_value ?? 0) * 0.01 : 0
-
+      // Encounter roll on first visit
+      if (isFirstVisit) {
+        const riskRating = data?.ecosystem?.risk ?? cachedState.risk_rating ?? 3
+        const luckVal    = getResourceVal('Luck')
         const { data: rarity } = await db.game.rpc('roll_encounter', {
           p_risk_rating: riskRating,
-          p_luck_bonus: luckBonus
+          p_luck_bonus:  luckVal * 0.01
         })
         showEncounterBanner(rarity)
       }
 
       await loadState()
       await loadAndRenderClues()
+
+      // Load outpost for this tile
+      const { data: outpost } = await db.game.from('outposts')
+        .select('name').eq('tile_id', target.tile_id).maybeSingle()
+
+      renderActionPanel(target.tile_id, data?.environment || env, isFirstVisit, !!outpost, outpost?.name)
       document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
     })
   })
 
-  // chronicle
+  // ── Chronicle ────────────────────────────────────────────────
   async function renderChronicle() {
     const data = await loadChronicle()
     const el = document.getElementById('chronicle-list')
@@ -322,7 +470,7 @@
     ).join('')
   }
 
-  // boards
+  // ── Boards ───────────────────────────────────────────────────
   const boards = await getBoards()
   const boardSel = document.getElementById('board-select')
   boardSel.innerHTML = boards?.map(b => `<option value="${b.id}">${b.name}</option>`).join('') || '<option value="">No boards yet</option>'
