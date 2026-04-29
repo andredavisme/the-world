@@ -33,6 +33,13 @@
     .move-btn{width:48px;height:48px;border-radius:6px;border:none;background:#1a1a2e;color:var(--text);font-size:1.2rem;cursor:pointer;transition:background .15s}
     .move-btn:hover{background:var(--accent);color:#0d0d1a}
     #move-feedback{font-size:.82rem;color:var(--muted);text-align:center;min-height:1.4rem;margin-top:.4rem}
+    .encounter-banner{border-radius:6px;padding:.6rem 1rem;margin-top:.6rem;font-size:.85rem;text-align:center;font-weight:600;display:none}
+    .encounter-none{background:#1a1a2e;color:var(--muted)}
+    .encounter-Common{background:#2d2d3d;color:#b2bec3}
+    .encounter-Uncommon{background:#003d3d;color:#00cec9}
+    .encounter-Rare{background:#2a1a4e;color:#a29bfe}
+    .encounter-Legendary{background:#3d2e00;color:#fdcb6e}
+    .encounter-Mythic{background:#3d1500;color:#e17055}
     .muted{color:var(--muted);font-size:.85rem} .error-msg{color:#e17055;font-size:.83rem;margin:.4rem 0}
   </style>
 </head>
@@ -92,6 +99,7 @@
         <button class="move-btn" data-dir="SE">⬊</button>
       </div>
       <div id="move-feedback"></div>
+      <div id="encounter-banner" class="encounter-banner"></div>
     </div>
     <div class="card" style="margin-top:1rem">
       <h3>Active Clues</h3>
@@ -152,7 +160,6 @@
     })
   })
 
-  // state view is filtered by auth automatically via RLS
   let cachedState = null
   async function loadState() {
     const { data, error } = await getPlayerState()
@@ -165,24 +172,25 @@
     const envEl = document.getElementById('tile-env')
     envEl.textContent = data.environment || 'Unknown'
     envEl.className = `tile-badge env-${env}`
-    // resources is a JSONB column on the state view
     renderResources(data.resources)
   }
 
   function renderResources(res) {
     const el = document.getElementById('resource-bars')
     if (!res) { el.innerHTML = '<span class="muted">No resource data.</span>'; return }
-    // res may be array or object
     const entries = Array.isArray(res) ? res : Object.entries(res).map(([k,v]) => ({ resource_type: k, current_value: v, max_value: 100 }))
     if (!entries.length) { el.innerHTML = '<span class="muted">No resources found.</span>'; return }
-    const colors = { health:'var(--accent)', stamina:'#00b894', hunger:'#fdcb6e', knowledge:'#a29bfe' }
+    const colors = { health:'var(--accent)', stamina:'#00b894', hunger:'#fdcb6e', knowledge:'#a29bfe', vitality:'var(--accent)', focus:'#a29bfe', influence:'#fd79a8', luck:'#fdcb6e' }
     el.innerHTML = entries.map(r => {
-      const pct = Math.min(100, Math.round(((r.current_value||0)/(r.max_value||100))*100))
-      const color = colors[r.resource_type?.toLowerCase()] || 'var(--accent)'
+      const key = (r.resource || r.resource_type || '').toLowerCase()
+      const cur = r.current ?? r.current_value ?? 0
+      const max = r.max ?? r.max_value ?? 100
+      const pct = Math.min(100, Math.round((cur / (max || 100)) * 100))
+      const color = colors[key] || 'var(--accent)'
       return `<div class="stat-row">
-        <span class="stat-label">${r.resource_type}</span>
+        <span class="stat-label">${r.resource || r.resource_type}</span>
         <div class="bar-wrap"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-        <span class="stat-val">${r.current_value ?? 0}</span>
+        <span class="stat-val">${cur}</span>
       </div>`
     }).join('')
   }
@@ -199,7 +207,6 @@
   async function loadAndRenderClues() {
     const el = document.getElementById('clue-list')
     if (!cachedState?.player_id) { el.innerHTML = '<span class="muted">No player data.</span>'; return }
-    // clues columns: id, origin_carrot_id, target_tile_id, status, hint_text, created_at, followed_at
     const { data } = await db.game.from('clues')
       .select('hint_text, status, created_at')
       .eq('status', 'active')
@@ -212,7 +219,6 @@
 
   async function loadAndRenderCarrots() {
     const el = document.getElementById('carrot-list')
-    // carrots columns: id, tile_id, attribute, rarity, status, label, reward_description, discovered_at, created_at
     const { data } = await db.game.from('carrots')
       .select('label, attribute, rarity, reward_description, discovered_at')
       .eq('status', 'found')
@@ -226,23 +232,83 @@
     ).join('')
   }
 
+  const encounterMessages = {
+    Common:    { icon: '👁', text: 'Something stirs in the undergrowth. A Common encounter.' },
+    Uncommon:  { icon: '⚡', text: 'The air shifts. An Uncommon presence makes itself known.' },
+    Rare:      { icon: '💠', text: 'A Rare discovery pulses at the edge of your senses.' },
+    Legendary: { icon: '🔥', text: 'The ground trembles. A Legendary force has found you.' },
+    Mythic:    { icon: '✦', text: 'Reality fractures. A Mythic encounter — few have survived this.' },
+  }
+
+  function showEncounterBanner(rarity) {
+    const banner = document.getElementById('encounter-banner')
+    if (!rarity) {
+      banner.style.display = 'none'
+      return
+    }
+    const msg = encounterMessages[rarity] || { icon: '?', text: `Encounter: ${rarity}` }
+    banner.className = `encounter-banner encounter-${rarity}`
+    banner.style.display = 'block'
+    banner.textContent = `${msg.icon} ${msg.text}`
+    // Auto-hide after 6 seconds
+    setTimeout(() => { banner.style.display = 'none' }, 6000)
+  }
+
   // movement
   document.querySelectorAll('.move-btn[data-dir]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const fb = document.getElementById('move-feedback')
       if (!cachedState) { fb.textContent = 'State not loaded yet.'; return }
+
+      // Disable buttons during move
+      document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = true)
       fb.textContent = 'Moving…'
+      document.getElementById('encounter-banner').style.display = 'none'
+
       const tiles = await getAdjacentTiles(cachedState.col ?? 0, cachedState.row ?? 0)
       const target = tiles.find(t => t.dir === btn.dataset.dir)
-      if (!target?.tile_id) { fb.textContent = 'No tile in that direction.'; return }
+      if (!target?.tile_id) {
+        fb.textContent = 'No tile in that direction.'
+        document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
+        return
+      }
+
+      // Check if this tile is unknown (not yet in world_tiles with known environment)
+      const { data: tileData } = await db.game.from('world_tiles')
+        .select('environment').eq('id', target.tile_id).single()
+      const isUnknown = !tileData?.environment
+
       const { data, error } = await movePlayer(cachedState.player_id, target.tile_id)
-      fb.textContent = error ? (error.message || 'Error moving.') : (data?.message || 'Moved.')
+      if (error) {
+        fb.textContent = error.message || 'Error moving.'
+        document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
+        return
+      }
+
+      fb.textContent = data?.message || 'Moved.'
+
+      // Roll encounter for unknown tiles
+      if (isUnknown) {
+        const riskRating = cachedState.risk_rating ?? 3
+        const luckRes = Array.isArray(cachedState.resources)
+          ? cachedState.resources.find(r => (r.resource || r.resource_type || '').toLowerCase() === 'luck')
+          : null
+        const luckBonus = luckRes ? (luckRes.current ?? luckRes.current_value ?? 0) * 0.01 : 0
+
+        const { data: rarity } = await db.game.rpc('roll_encounter', {
+          p_risk_rating: riskRating,
+          p_luck_bonus: luckBonus
+        })
+        showEncounterBanner(rarity)
+      }
+
       await loadState()
       await loadAndRenderClues()
+      document.querySelectorAll('.move-btn[data-dir]').forEach(b => b.disabled = false)
     })
   })
 
-  // chronicle — columns: headline, body, environment, rarity, created_at
+  // chronicle
   async function renderChronicle() {
     const data = await loadChronicle()
     const el = document.getElementById('chronicle-list')
