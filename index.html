@@ -66,6 +66,7 @@
   import { supabase } from './js/supabase.js'
   import { login, register } from './js/auth.js'
 
+  // Already logged in? Go straight to portal
   const { data: { session } } = await supabase.auth.getSession()
   if (session) window.location.href = 'portal.html'
 
@@ -100,11 +101,33 @@
     const errEl    = document.getElementById('reg-error')
     const sucEl    = document.getElementById('reg-success')
     hideEl(errEl); hideEl(sucEl)
-    if (!name) { showErr(errEl, 'Display name is required'); return }
+    if (!name)     { showErr(errEl, 'Display name is required'); return }
+    if (!email)    { showErr(errEl, 'Email is required'); return }
+    if (password.length < 6) { showErr(errEl, 'Password must be at least 6 characters'); return }
+
+    const btn = document.getElementById('register-btn')
+    btn.disabled = true
+    btn.textContent = 'Entering the world…'
+
     const { error } = await register(email, password, name)
-    if (error) { showErr(errEl, error.message); return }
-    sucEl.textContent = 'Account created! Check your email to confirm, then sign in.'
-    sucEl.classList.remove('hidden')
+    if (error) {
+      showErr(errEl, error.message)
+      btn.disabled = false
+      btn.textContent = 'Begin Your Journey'
+      return
+    }
+
+    // If email confirmation is OFF, session exists immediately — go to portal
+    const { data: { session: newSession } } = await supabase.auth.getSession()
+    if (newSession) {
+      window.location.href = 'portal.html'
+    } else {
+      // Email confirmation is ON — show message
+      sucEl.textContent = 'Account created! Check your email to confirm, then sign in.'
+      sucEl.classList.remove('hidden')
+      btn.disabled = false
+      btn.textContent = 'Begin Your Journey'
+    }
   })
 </script>
 </body>
