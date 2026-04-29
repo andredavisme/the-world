@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The World — Portal</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .portal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .portal-grid .full-width { grid-column: 1 / -1; }
+    .stat-row { display:flex; justify-content:space-between; align-items:center; margin:.4rem 0; font-size:.88rem; }
+    .stat-label { color: var(--muted); }
+    .stat-val { font-weight:600; color: var(--accent); }
+    .bar-wrap { background:#1a1a2e; border-radius:4px; height:8px; flex:1; margin:0 .75rem; }
+    .bar-fill { height:8px; border-radius:4px; background: var(--accent); transition: width .4s; }
+    .tile-badge {
+      display:inline-block; padding:.2rem .6rem; border-radius:4px;
+      font-size:.78rem; font-weight:700; letter-spacing:.05em;
+      margin-bottom:.5rem;
+    }
+    .env-ocean      { background:#0a3d62; color:#74b9ff; }
+    .env-forest     { background:#1e3c1e; color:#55efc4; }
+    .env-mountain   { background:#2d3436; color:#b2bec3; }
+    .env-desert     { background:#3d2b00; color:#fdcb6e; }
+    .env-jungle     { background:#003d1e; color:#00b894; }
+    .env-swamp      { background:#1e2d1e; color:#81b214; }
+    .env-freshwater { background:#003d4d; color:#00cec9; }
+    .env-unknown    { background:#2d2d2d; color:#888; }
+    .nav-tabs { display:flex; gap:.5rem; margin-bottom:1rem; flex-wrap:wrap; }
+    .nav-tab {
+      padding:.4rem 1rem; border-radius:4px; cursor:pointer;
+      background:#1a1a2e; color:var(--muted); font-size:.85rem; border:none;
+      transition: background .2s, color .2s;
+    }
+    .nav-tab.active { background:var(--accent); color:#0d0d1a; font-weight:700; }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+    .chronicle-entry { border-bottom:1px solid #1a1a2e; padding:.6rem 0; font-size:.85rem; line-height:1.6; }
+    .chronicle-entry .ts { color:var(--muted); font-size:.75rem; }
+    .board-select { background:#1a1a2e; color:var(--text); border:1px solid #333; border-radius:4px; padding:.4rem; width:100%; margin-bottom:.75rem; }
+    .post-item { border-bottom:1px solid #1a1a2e; padding:.6rem 0; font-size:.85rem; }
+    .post-author { color:var(--accent); font-size:.78rem; }
+    .post-input { width:100%; background:#1a1a2e; color:var(--text); border:1px solid #333; border-radius:4px; padding:.5rem; font-size:.85rem; margin:.4rem 0; resize:vertical; }
+    .carrot-item { display:flex; align-items:center; gap:.75rem; padding:.5rem 0; border-bottom:1px solid #1a1a2e; font-size:.85rem; }
+    .carrot-icon { font-size:1.2rem; }
+    .rarity-common    { color:#b2bec3; }
+    .rarity-uncommon  { color:#00cec9; }
+    .rarity-rare      { color:#6c5ce7; }
+    .rarity-legendary { color:#fdcb6e; }
+    .rarity-mythic    { color:#e17055; }
+    .move-grid { display:grid; grid-template-columns:repeat(3,48px); gap:.4rem; margin:.75rem auto; width:fit-content; }
+    .move-btn {
+      width:48px; height:48px; border-radius:6px; border:none;
+      background:#1a1a2e; color:var(--text); font-size:1.2rem;
+      cursor:pointer; transition:background .15s;
+    }
+    .move-btn:hover { background:var(--accent); color:#0d0d1a; }
+    .move-btn.center { background:transparent; cursor:default; }
+    #move-feedback { font-size:.82rem; color:var(--muted); text-align:center; min-height:1.4rem; margin-top:.4rem; }
+    .loading { color:var(--muted); font-size:.85rem; text-align:center; padding:1rem; }
+    .error-msg { color:#e17055; font-size:.83rem; margin:.4rem 0; }
+  </style>
+</head>
+<body>
+<div class="container" style="max-width:780px">
+
+  <!-- Header -->
+  <div style="display:flex; justify-content:space-between; align-items:center; padding:1.25rem 0 .5rem;">
+    <h1 style="font-size:1.3rem; margin:0">⬡ The World</h1>
+    <div style="display:flex; align-items:center; gap:1rem;">
+      <span id="player-name" style="font-size:.85rem; color:var(--muted);">Loading…</span>
+      <button class="btn" id="logout-btn" style="padding:.3rem .8rem; font-size:.8rem;">Exit</button>
+    </div>
+  </div>
+
+  <!-- Nav Tabs -->
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-tab="overview">Overview</button>
+    <button class="nav-tab" data-tab="explore">Explore</button>
+    <button class="nav-tab" data-tab="carrots">Carrots</button>
+    <button class="nav-tab" data-tab="chronicle">Chronicle</button>
+    <button class="nav-tab" data-tab="boards">Boards</button>
+  </div>
+
+  <!-- OVERVIEW TAB -->
+  <div class="tab-panel active" id="tab-overview">
+    <div class="portal-grid">
+
+      <!-- Current Tile -->
+      <div class="card">
+        <h3 style="margin-bottom:.6rem">Current Tile</h3>
+        <div id="tile-env" class="tile-badge env-unknown">Unknown</div>
+        <div class="stat-row"><span class="stat-label">Position</span><span class="stat-val" id="tile-pos">—</span></div>
+        <div class="stat-row"><span class="stat-label">Danger</span><span class="stat-val" id="tile-risk">—</span></div>
+        <div class="stat-row"><span class="stat-label">Tiles Explored</span><span class="stat-val" id="tiles-explored">—</span></div>
+      </div>
+
+      <!-- Resources -->
+      <div class="card">
+        <h3 style="margin-bottom:.6rem">Resources</h3>
+        <div class="stat-row">
+          <span class="stat-label">Health</span>
+          <div class="bar-wrap"><div class="bar-fill" id="bar-health" style="width:0%"></div></div>
+          <span class="stat-val" id="val-health">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Stamina</span>
+          <div class="bar-wrap"><div class="bar-fill" id="bar-stamina" style="width:0%; background:#00b894"></div></div>
+          <span class="stat-val" id="val-stamina">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Hunger</span>
+          <div class="bar-wrap"><div class="bar-fill" id="bar-hunger" style="width:0%; background:#fdcb6e"></div></div>
+          <span class="stat-val" id="val-hunger">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Knowledge</span>
+          <div class="bar-wrap"><div class="bar-fill" id="bar-knowledge" style="width:0%; background:#a29bfe"></div></div>
+          <span class="stat-val" id="val-knowledge">0</span>
+        </div>
+      </div>
+
+      <!-- Inventory -->
+      <div class="card full-width">
+        <h3 style="margin-bottom:.6rem">Inventory</h3>
+        <div id="inventory-list"><span class="loading">Loading inventory…</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- EXPLORE TAB -->
+  <div class="tab-panel" id="tab-explore">
+    <div class="card">
+      <h3>Move</h3>
+      <p style="font-size:.83rem; color:var(--muted); margin:.25rem 0 .5rem;">Each move costs stamina. Unknown tiles trigger an encounter roll.</p>
+      <div class="move-grid">
+        <button class="move-btn" data-dir="nw">⬉</button>
+        <button class="move-btn" data-dir="n">⬆</button>
+        <button class="move-btn" data-dir="ne">⬈</button>
+        <button class="move-btn" data-dir="w">⬅</button>
+        <button class="move-btn center" data-dir="">⬡</button>
+        <button class="move-btn" data-dir="e">➡</button>
+        <button class="move-btn" data-dir="sw">⬋</button>
+        <button class="move-btn" data-dir="s">⬇</button>
+        <button class="move-btn" data-dir="se">⬊</button>
+      </div>
+      <div id="move-feedback"></div>
+    </div>
+
+    <div class="card" style="margin-top:1rem">
+      <h3>Active Clues</h3>
+      <div id="clue-list"><span class="loading">Loading clues…</span></div>
+    </div>
+  </div>
+
+  <!-- CARROTS TAB -->
+  <div class="tab-panel" id="tab-carrots">
+    <div class="card">
+      <h3>Carrots Collected</h3>
+      <div id="carrot-list"><span class="loading">Loading carrots…</span></div>
+    </div>
+  </div>
+
+  <!-- CHRONICLE TAB -->
+  <div class="tab-panel" id="tab-chronicle">
+    <div class="card">
+      <h3>The Chronicle</h3>
+      <p style="font-size:.8rem; color:var(--muted); margin-bottom:.75rem;">A living record of what has happened in the world.</p>
+      <div id="chronicle-list"><span class="loading">Loading chronicle…</span></div>
+    </div>
+  </div>
+
+  <!-- BOARDS TAB -->
+  <div class="tab-panel" id="tab-boards">
+    <div class="card">
+      <h3>Message Boards</h3>
+      <select class="board-select" id="board-select"><option value="">Loading boards…</option></select>
+      <div id="posts-list"><span class="loading">Select a board above.</span></div>
+      <div style="margin-top:.75rem">
+        <textarea class="post-input" id="new-post" rows="2" placeholder="Write a message to the world…"></textarea>
+        <button class="btn btn-primary" id="post-btn" style="width:100%">Post</button>
+        <div id="post-error" class="error-msg hidden"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+  import { supabase }    from './js/supabase.js'
+  import { requireAuth, logout } from './js/auth.js'
+  import { loadChronicle }  from './js/chronicle.js'
+  import { loadBoards, loadPosts, submitPost } from './js/boards.js'
+  import { movePlayer, loadClues, loadCarrots } from './js/game.js'
+
+  const session = await requireAuth()
+  if (!session) throw new Error('not authed')
+
+  // --- logout
+  document.getElementById('logout-btn').addEventListener('click', logout)
+
+  // --- tab switching
+  document.querySelectorAll('.nav-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'))
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'))
+      btn.classList.add('active')
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active')
+    })
+  })
+
+  // --- load player state
+  async function loadState() {
+    const { data, error } = await supabase
+      .schema('player').from('state').select('*').single()
+    if (error || !data) { console.error('state error', error); return }
+
+    document.getElementById('player-name').textContent = data.display_name || 'Explorer'
+    document.getElementById('tile-pos').textContent    = `(${data.tile_x ?? '?'}, ${data.tile_y ?? '?'})`
+    document.getElementById('tile-risk').textContent   = data.risk_rating ?? '—'
+    document.getElementById('tiles-explored').textContent = data.tiles_explored ?? 0
+
+    const env = (data.environment || 'unknown').toLowerCase()
+    const envEl = document.getElementById('tile-env')
+    envEl.textContent = data.environment || 'Unknown'
+    envEl.className = `tile-badge env-${env}`
+
+    const setBar = (id, val, max=100) => {
+      document.getElementById('bar-'+id).style.width = Math.min(100, Math.round((val/max)*100)) + '%'
+      document.getElementById('val-'+id).textContent = val ?? 0
+    }
+    setBar('health',    data.health    ?? 0, 100)
+    setBar('stamina',   data.stamina   ?? 0, 100)
+    setBar('hunger',    data.hunger    ?? 0, 100)
+    setBar('knowledge', data.knowledge ?? 0, 100)
+  }
+
+  // --- load inventory
+  async function loadInventory() {
+    const { data, error } = await supabase
+      .schema('player').from('inventory').select('item_name, quantity, description')
+    const el = document.getElementById('inventory-list')
+    if (error || !data?.length) { el.innerHTML = '<span style="color:var(--muted);font-size:.85rem">Your pack is empty.</span>'; return }
+    el.innerHTML = data.map(i =>
+      `<div class="stat-row"><span>${i.item_name}</span><span class="stat-val">×${i.quantity}</span></div>`
+    ).join('')
+  }
+
+  // --- movement
+  document.querySelectorAll('.move-btn[data-dir]').forEach(btn => {
+    if (!btn.dataset.dir) return
+    btn.addEventListener('click', async () => {
+      const fb = document.getElementById('move-feedback')
+      fb.textContent = 'Moving…'
+      const result = await movePlayer(btn.dataset.dir)
+      fb.textContent = result?.message || 'Moved.'
+      await loadState()
+      await loadClues().then(renderClues)
+    })
+  })
+
+  // --- clues
+  async function renderClues(data) {
+    const el = document.getElementById('clue-list')
+    if (!data?.length) { el.innerHTML = '<span style="color:var(--muted);font-size:.85rem">No active clues. Keep exploring.</span>'; return }
+    el.innerHTML = data.map(c =>
+      `<div class="chronicle-entry">
+        <div>${c.clue_text}</div>
+        <div class="ts">${c.environment || ''} — ${c.distance_hint || ''}</div>
+      </div>`
+    ).join('')
+  }
+
+  // --- carrots
+  async function renderCarrots(data) {
+    const el = document.getElementById('carrot-list')
+    if (!data?.length) { el.innerHTML = '<span style="color:var(--muted);font-size:.85rem">None found yet. Follow the clues.</span>'; return }
+    el.innerHTML = data.map(c =>
+      `<div class="carrot-item">
+        <span class="carrot-icon">🥕</span>
+        <div>
+          <div class="rarity-${c.rarity?.toLowerCase()}">${c.rarity} — ${c.carrot_type}</div>
+          <div style="color:var(--muted);font-size:.78rem">${c.description || ''}</div>
+        </div>
+      </div>`
+    ).join('')
+  }
+
+  // --- chronicle
+  async function renderChronicle(data) {
+    const el = document.getElementById('chronicle-list')
+    if (!data?.length) { el.innerHTML = '<span style="color:var(--muted);font-size:.85rem">The world is silent… for now.</span>'; return }
+    el.innerHTML = data.map(e =>
+      `<div class="chronicle-entry">
+        <div>${e.entry_text || e.message || ''}</div>
+        <div class="ts">${new Date(e.created_at).toLocaleString()}</div>
+      </div>`
+    ).join('')
+  }
+
+  // --- boards
+  const boards = await loadBoards()
+  const boardSel = document.getElementById('board-select')
+  boardSel.innerHTML = boards?.map(b =>
+    `<option value="${b.id}">${b.name}</option>`
+  ).join('') || '<option>No boards yet</option>'
+
+  async function refreshPosts() {
+    const bid = boardSel.value
+    if (!bid) return
+    const posts = await loadPosts(bid)
+    const el = document.getElementById('posts-list')
+    if (!posts?.length) { el.innerHTML = '<span style="color:var(--muted);font-size:.85rem">No posts yet. Be the first.</span>'; return }
+    el.innerHTML = posts.map(p =>
+      `<div class="post-item">
+        <div class="post-author">${p.author_name || 'Unknown'} • ${new Date(p.created_at).toLocaleString()}</div>
+        <div>${p.body}</div>
+      </div>`
+    ).join('')
+  }
+
+  boardSel.addEventListener('change', refreshPosts)
+  if (boards?.length) refreshPosts()
+
+  document.getElementById('post-btn').addEventListener('click', async () => {
+    const body   = document.getElementById('new-post').value.trim()
+    const bid    = boardSel.value
+    const errEl  = document.getElementById('post-error')
+    errEl.classList.add('hidden')
+    if (!body) return
+    const { error } = await submitPost(bid, body)
+    if (error) { errEl.textContent = error.message; errEl.classList.remove('hidden'); return }
+    document.getElementById('new-post').value = ''
+    refreshPosts()
+  })
+
+  // --- initial load
+  await Promise.all([
+    loadState(),
+    loadInventory(),
+    loadClues().then(renderClues),
+    loadCarrots().then(renderCarrots),
+    loadChronicle().then(renderChronicle),
+  ])
+</script>
+</body>
+</html>
