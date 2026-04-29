@@ -12,21 +12,13 @@ export async function requireAuth() {
 }
 
 export async function register(email, password, displayName) {
-  // Step 1: create auth user
   const { data, error } = await supabase.auth.signUp({ email, password })
   if (error) return { error }
   if (!data.user) return { error: { message: 'Signup failed — no user returned.' } }
-
-  // Step 2: wait briefly for session to settle, then onboard
-  await new Promise(r => setTimeout(r, 500))
-
+  await new Promise(r => setTimeout(r, 800))
   const { data: onboard, error: oErr } = await supabase
     .schema('player')
-    .rpc('onboard_player', {
-      p_auth_uid:    data.user.id,
-      p_display_name: displayName
-    })
-
+    .rpc('onboard_player', { p_auth_uid: data.user.id, p_display_name: displayName })
   if (oErr) console.error('onboard_player error:', oErr)
   return { data: onboard, error: oErr }
 }
