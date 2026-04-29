@@ -132,7 +132,7 @@
 
 </div>
 <script type="module">
-  import { supabase } from './js/supabase.js'
+  import { supabase, db } from './js/supabase.js'
   import { requireAuth, logout } from './js/auth.js'
   import { loadChronicle } from './js/chronicle.js'
   import { getBoards, getPosts, postMessage } from './js/boards.js'
@@ -189,7 +189,7 @@
 
   async function loadInventory() {
     if (!cachedState?.player_id) return
-    const { data } = await supabase.schema('player').from('inventory')
+    const { data } = await db.player.from('inventory')
       .select('item_name, quantity').eq('player_id', cachedState.player_id)
     const el = document.getElementById('inventory-list')
     if (!data?.length) { el.innerHTML = '<span class="muted">Your pack is empty.</span>'; return }
@@ -200,7 +200,7 @@
     const el = document.getElementById('clue-list')
     if (!cachedState?.player_id) { el.innerHTML = '<span class="muted">No player data.</span>'; return }
     // clues columns: id, origin_carrot_id, target_tile_id, status, hint_text, created_at, followed_at
-    const { data } = await supabase.schema('game').from('clues')
+    const { data } = await db.game.from('clues')
       .select('hint_text, status, created_at')
       .eq('status', 'active')
       .order('created_at', { ascending: false })
@@ -213,7 +213,7 @@
   async function loadAndRenderCarrots() {
     const el = document.getElementById('carrot-list')
     // carrots columns: id, tile_id, attribute, rarity, status, label, reward_description, discovered_at, created_at
-    const { data } = await supabase.schema('game').from('carrots')
+    const { data } = await db.game.from('carrots')
       .select('label, attribute, rarity, reward_description, discovered_at')
       .eq('status', 'found')
       .order('discovered_at', { ascending: false })
